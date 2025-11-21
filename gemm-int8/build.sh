@@ -60,10 +60,10 @@ fi
 echo "Found libtorch at: $LIBTORCH_PATH"
 
 
-build_capability="70;75;80;86"
-[[ "${cuda_version}" == 11.7.* ]] && build_capability="70;75;80;86"
-[[ "${cuda_version}" == 12.6.* ]] && build_capability="70;75;80;86;89;90;90a"
-[[ "${cuda_version}" == 12.8.* ]] && build_capability="70;75;80;86;89;90;90a;100;120"
+build_capability="80;86"
+[[ "${cuda_version}" == 11.7.* ]] && build_capability="80;86"
+[[ "${cuda_version}" == 12.6.* ]] && build_capability="80;86;89;90;90a"
+[[ "${cuda_version}" == 12.8.* ]] && build_capability="80;86;89;90;90a;100;120"
 
 # Create build directory
 mkdir -p build

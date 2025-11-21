@@ -20,8 +20,8 @@
 
 
 template <typename TileShape, typename WarpShape, int kStages>
-torch::Tensor int8_matmul(torch::Tensor input,  // INT8
-                                  torch::Tensor weight, // INT8
+torch::Tensor int8_matmul(torch::Tensor input,  // INT8 - shape (M, K)
+                                  torch::Tensor weight, // INT8 - shape (N, K)
                                   float alpha          // FP32
 ){
   auto M = input.size(0);
@@ -33,12 +33,11 @@ torch::Tensor int8_matmul(torch::Tensor input,  // INT8
   using ElementOutput = cutlass::bfloat16_t;
   using ElementAccumulator = int32_t;
   using ElementComputeEpilogue = float;
-  using ElementInputA = int8_t; // <- data type of elements in input matrix A
-  using ElementInputB = int8_t; // <- data type of elements in input matrix B
+  using ElementInputA = int8_t; // <- data type of input matrix A
+  using ElementInputB = int8_t; // <- data type of weight matrix B
 
-  // The code section below describes matrix layout of input and output
-  // matrices. Column Major for Matrix A, Row Major for Matrix B and Row Major
-  // for Matrix C
+  // The code below describes matrix layout 
+  // Column Major for Matrix A, Row Major for Matrix B and Row Major for Matrix C
   using LayoutInputA = cutlass::layout::RowMajor;
   using LayoutInputB = cutlass::layout::ColumnMajor;
   using LayoutOutput = cutlass::layout::RowMajor;
@@ -92,6 +91,7 @@ torch::Tensor int8_matmul(torch::Tensor input,  // INT8
       out_ref,      // <- reference to matrix C on device
       out_ref,      // <- reference to matrix D on device
       {alpha, 0.0}, 1};
+  
   Gemm gemm_op;
 
   // Using the arguments, query for extra workspace required for matrix
