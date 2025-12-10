@@ -6,7 +6,8 @@ from setuptools import setup
 from torch.utils.cpp_extension import BuildExtension, CUDAExtension
 
 include_dirs=["/home/tnguyen10/Desktop/deep_learning_research/llm_quantization/gemm-on-chip/cutlass/include",\
-                "/home/tnguyen10/Desktop/deep_learning_research/llm_quantization/gemm-on-chip/cutlass/tools/util/include"]
+                "/home/tnguyen10/Desktop/deep_learning_research/llm_quantization/gemm-on-chip/cutlass/tools/util/include",\
+                "/home/tnguyen10/Desktop/deep_learning_research/llm_quantization/gemm-on-chip"]
 cuda  = os.environ.get("CUDA_HOME", "")
 
 setup(

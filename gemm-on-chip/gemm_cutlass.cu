@@ -10,8 +10,11 @@
 #include "cutlass/numeric_types.h"
 #include "cutlass/half.h"
 #include "cutlass/float8.h"
-#include "cutlass/gemm/device/gemm.h"
 #include "cutlass/util/host_tensor.h"
+#include "cutlass/gemm/device/gemm.h"
+
+#include "gemm/device/gemm.h"
+
 
 // ================================================================
 // Core GEMM
@@ -173,148 +176,6 @@ torch::Tensor int8_matmul_host(
     using WarpShape = cutlass::gemm::GemmShape<64, 64, 64>;
     constexpr int kStages = 3;
     return int8_matmul<TileShape, WarpShape, kStages>(input, weight, alpha);
-  }
-}
-
-template <typename TileShape, typename WarpShape, int kStages>
-torch::Tensor int8_matmul_relu(
-    torch::Tensor input,    // INT8 - shape (M, K)
-    torch::Tensor weight,   // INT8 - shape (N, K)
-    float alpha // FP32 - scalar)
-) {
-  TORCH_CHECK(input.is_cuda(), "input must be a CUDA tensor");
-  TORCH_CHECK(weight.is_cuda(), "weight must be a CUDA tensor");
-
-  TORCH_CHECK(input.dtype() == torch::kChar,
-              "input must be torch.int8 (kChar)");
-  TORCH_CHECK(weight.dtype() == torch::kChar,
-              "weight must be torch.int8 (kChar)");
-
-  TORCH_CHECK(input.dim() == 2 && weight.dim() == 2,
-              "input and weight must be 2D tensors");
-
-  auto M = input.size(0);
-  auto K = input.size(1);
-  auto N = weight.size(0);  // as before: weight is (N, K)
-
-  TORCH_CHECK(weight.size(1) == K,
-              "weight shape must be (N, K) with same K as input");
-
-  // Make sure we have contiguous memory in the expected layout
-  input = input.contiguous();
-  weight = weight.contiguous();
-
-  auto options = torch::TensorOptions()
-                     .dtype(torch::kBFloat16)
-                     .device(input.device());
-  auto out = torch::empty({M, N}, options);
-
-  using ElementOutput = cutlass::bfloat16_t;
-  using ElementAccumulator = int32_t;
-  using ElementComputeEpilogue = float;
-  using ElementInputA = int8_t;
-  using ElementInputB = int8_t;
-
-  using LayoutInputA = cutlass::layout::RowMajor;
-  using LayoutInputB = cutlass::layout::ColumnMajor;
-  using LayoutOutput = cutlass::layout::RowMajor;
-
-  // Per-channel scaling epilogu
-  using EpilogueOp = cutlass::epilogue::thread::LinearCombinationRelu<
-      ElementOutput,
-      128 / cutlass::sizeof_bits<ElementOutput>::value,
-      ElementAccumulator,
-      ElementComputeEpilogue>;
-
-  using Gemm = cutlass::gemm::device::Gemm<
-      ElementInputA,
-      LayoutInputA,
-      ElementInputB,
-      LayoutInputB,
-      ElementOutput,
-      LayoutOutput,
-      ElementAccumulator,
-      cutlass::arch::OpClassTensorOp,
-      cutlass::arch::Sm80,
-      TileShape,
-      WarpShape,
-      cutlass::gemm::GemmShape<16, 8, 32>,
-      EpilogueOp,
-      cutlass::gemm::threadblock::GemmIdentityThreadblockSwizzle<>,
-      kStages>;
-
-  cutlass::gemm::GemmCoord problem_size(M, N, K);
-
-  cutlass::MatrixCoord input_size(M, K);
-  cutlass::MatrixCoord weight_size(K, N);
-  cutlass::MatrixCoord output_size(M, N);
-
-  cutlass::TensorRef<ElementInputA, LayoutInputA> input_ref(
-      reinterpret_cast<ElementInputA*>(input.data_ptr<int8_t>()),
-      LayoutInputA::packed(input_size));
-
-  // weight: (N, K) row-major → reinterpret as (K, N) col-major
-  cutlass::TensorRef<ElementInputB, LayoutInputB> weight_ref(
-      reinterpret_cast<ElementInputB*>(weight.data_ptr<int8_t>()),
-      LayoutInputB::packed(weight_size));
-
-  cutlass::TensorRef<ElementOutput, LayoutOutput> out_ref(
-      reinterpret_cast<ElementOutput*>(out.data_ptr<torch::BFloat16>()),
-      LayoutOutput::packed(output_size));
-
-  typename Gemm::Arguments arguments{
-      problem_size,
-      input_ref,
-      weight_ref,
-      out_ref,        // C (not used because beta==0)
-      out_ref,        // D
-      {alpha, 0.0f},
-      1               // split-K or batch count, same as your original code
-  };
-
-  Gemm gemm_op;
-
-  size_t workspace_size = Gemm::get_workspace_size(arguments);
-  cutlass::device_memory::allocation<uint8_t> workspace(workspace_size);
-
-  cutlass::Status status = gemm_op.can_implement(arguments);
-  TORCH_CHECK(status == cutlass::Status::kSuccess,
-              "CUTLASS GEMM configuration not supported");
-
-  status = gemm_op.initialize(arguments, workspace.get());
-  TORCH_CHECK(status == cutlass::Status::kSuccess,
-              "CUTLASS GEMM initialization failed");
-
-  auto stream = at::cuda::getCurrentCUDAStream();
-  status = gemm_op(stream.stream());
-  TORCH_CHECK(status == cutlass::Status::kSuccess,
-              "CUTLASS GEMM execution failed");
-
-  return out;
-}
-
-
-torch::Tensor int8_matmul_relu_host(
-    torch::Tensor input,    // INT8
-    torch::Tensor weight,   // INT8
-    float alpha // FP32
-) {
-  auto M = input.size(0);
-  auto K = input.size(1);
-  auto N = weight.size(0);
-
-  if (M == 512 && N == 4096 && K == 4096) {
-    using TileShape = cutlass::gemm::GemmShape<128, 128, 128>;
-    using WarpShape = cutlass::gemm::GemmShape<64, 64, 128>;
-    constexpr int kStages = 3;
-    return int8_matmul_relu<TileShape, WarpShape, kStages>(
-        input, weight, alpha);
-  } else {
-    using TileShape = cutlass::gemm::GemmShape<256, 128, 64>;
-    using WarpShape = cutlass::gemm::GemmShape<64, 64, 64>;
-    constexpr int kStages = 3;
-    return int8_matmul_relu<TileShape, WarpShape, kStages>(
-        input, weight, alpha);
   }
 }
 
@@ -488,6 +349,262 @@ torch::Tensor int8_matmul_dequant_host(
 
 
 // ================================================================
+// Tensor Core GEMM
+// ================================================================
+template <typename TileShape, typename WarpShape, typename MmaShape, int kStages>
+torch::Tensor matmul_tensor_core(
+    torch::Tensor input,  // BFloat16 - shape (M, K)
+    torch::Tensor weight,  /// BFloat16 - shape (N, K)
+    float alpha
+) {
+  TORCH_CHECK(input.is_cuda(), "input must be a CUDA tensor");
+  TORCH_CHECK(weight.is_cuda(), "weight must be a CUDA tensor");
+
+  TORCH_CHECK(input.dtype() == torch::kBFloat16);
+  TORCH_CHECK(weight.dtype() == torch::kBFloat16);
+
+  TORCH_CHECK(input.dim() == 2 && weight.dim() == 2,
+              "input and weight must be 2D tensors");
+
+  auto M = input.size(0);
+  auto K = input.size(1);
+  auto N = weight.size(0); 
+
+  TORCH_CHECK(weight.size(1) == K,
+              "weight shape must be (N, K) with same K as input");
+
+  // Make sure we have contiguous memory in the expected layout
+  input = input.contiguous();
+  weight = weight.contiguous();
+
+  auto options = torch::TensorOptions()
+                     .dtype(torch::kBFloat16)
+                     .device(input.device());
+  auto out = torch::empty({M, N}, options);
+
+  using ElementOutput = cutlass::bfloat16_t;
+  using ElementAccumulator = float;
+  using ElementComputeEpilogue = float;
+  using ElementInputA = cutlass::bfloat16_t;
+  using ElementInputB = cutlass::bfloat16_t;
+
+  // Layouts as in your code
+  using LayoutInputA = cutlass::layout::RowMajor;
+  using LayoutInputB = cutlass::layout::ColumnMajor;
+  using LayoutOutput = cutlass::layout::RowMajor;
+
+  using EpilogueOp = cutlass::epilogue::thread::LinearCombination<
+          ElementOutput,
+          128 / cutlass::sizeof_bits<ElementOutput>::value,
+          ElementAccumulator,
+          ElementComputeEpilogue>;
+
+  using Gemm = cutlass::gemm::device::Gemm<
+      ElementInputA,
+      LayoutInputA,
+      ElementInputB,
+      LayoutInputB,
+      ElementOutput,
+      LayoutOutput,
+      ElementAccumulator,
+      cutlass::arch::OpClassTensorOp,  // using Tensor Cores
+      cutlass::arch::Sm80,
+      TileShape,  // threadblock tile size
+      WarpShape, // warp tile size
+      MmaShape, // instruction tile size (Tensor Core)
+      EpilogueOp,
+      cutlass::gemm::threadblock::GemmIdentityThreadblockSwizzle<>,
+      kStages>; 
+
+  cutlass::gemm::GemmCoord problem_size(M, N, K);
+
+  cutlass::MatrixCoord input_size(M, K);
+  cutlass::MatrixCoord weight_size(K, N);
+  cutlass::MatrixCoord output_size(M, N);
+
+  cutlass::TensorRef<ElementInputA, LayoutInputA> input_ref(
+      reinterpret_cast<ElementInputA*>(input.data_ptr<torch::BFloat16>()),
+      LayoutInputA::packed(input_size));
+
+  cutlass::TensorRef<ElementInputB, LayoutInputB> weight_ref(
+      reinterpret_cast<ElementInputB*>(weight.data_ptr<torch::BFloat16>()),
+      LayoutInputB::packed(weight_size));
+
+  cutlass::TensorRef<ElementOutput, LayoutOutput> out_ref(
+      reinterpret_cast<ElementOutput*>(out.data_ptr<torch::BFloat16>()),
+      LayoutOutput::packed(output_size));
+
+  typename Gemm::Arguments arguments{
+      problem_size,
+      input_ref,
+      weight_ref,
+      out_ref,
+      out_ref,
+      {alpha, 0.0f},
+      1};
+
+  Gemm gemm_op;
+
+  size_t workspace_size = Gemm::get_workspace_size(arguments);
+  cutlass::device_memory::allocation<uint8_t> workspace(workspace_size);
+
+  cutlass::Status status = gemm_op.can_implement(arguments);
+  TORCH_CHECK(status == cutlass::Status::kSuccess,
+              "CUTLASS GEMM configuration not supported");
+
+  status = gemm_op.initialize(arguments, workspace.get());
+  TORCH_CHECK(status == cutlass::Status::kSuccess,
+              "CUTLASS GEMM initialization failed");
+
+  // Use the current PyTorch CUDA stream for better integratio
+  auto stream = at::cuda::getCurrentCUDAStream();
+  status = gemm_op(stream.stream());
+  TORCH_CHECK(status == cutlass::Status::kSuccess,
+              "CUTLASS GEMM execution failed");
+
+  return out;
+}
+
+torch::Tensor matmul_tensor_core_host(
+    torch::Tensor input,
+    torch::Tensor weight,
+    float alpha
+) {
+  auto M = input.size(0);
+  auto K = input.size(1);
+  auto N = weight.size(0);
+  using TileShape = cutlass::gemm::GemmShape<128, 128, 64>;
+  using WarpShape = cutlass::gemm::GemmShape<64, 64, 64>;
+  using MmaShape = cutlass::gemm::GemmShape<16, 8, 8>;
+  constexpr int kStages = 3;
+  return matmul_tensor_core<TileShape, WarpShape, MmaShape, kStages>(input, weight, alpha);
+}
+
+
+// ================================================================
+// CUDA Core GEMM
+// ================================================================
+torch::Tensor matmul_cuda_core(
+    torch::Tensor input,
+    torch::Tensor weight,
+    float alpha
+) {
+  TORCH_CHECK(input.is_cuda(), "input must be a CUDA tensor");
+  TORCH_CHECK(weight.is_cuda(), "weight must be a CUDA tensor");
+
+  TORCH_CHECK(input.dtype() == torch::kBFloat16);
+  TORCH_CHECK(weight.dtype() == torch::kBFloat16);
+
+  TORCH_CHECK(input.dim() == 2 && weight.dim() == 2,
+              "input and weight must be 2D tensors");
+
+  auto M = input.size(0);
+  auto K = input.size(1);
+  auto N = weight.size(0); 
+
+  TORCH_CHECK(weight.size(1) == K,
+              "weight shape must be (N, K) with same K as input");
+
+  // Make sure we have contiguous memory in the expected layout
+  input = input.contiguous();
+  weight = weight.contiguous();
+
+  auto options = torch::TensorOptions()
+                     .dtype(torch::kBFloat16)
+                     .device(input.device());
+  auto out = torch::empty({M, N}, options);
+
+  using ElementOutput = cutlass::bfloat16_t;
+  using ElementAccumulator = float;
+  using ElementComputeEpilogue = float;
+  using ElementInputA = cutlass::bfloat16_t;
+  using ElementInputB = cutlass::bfloat16_t;
+
+  // Layouts as in your code
+  using LayoutInputA = cutlass::layout::RowMajor;
+  using LayoutInputB = cutlass::layout::ColumnMajor;
+  using LayoutOutput = cutlass::layout::RowMajor;
+
+  using EpilogueOp = cutlass::epilogue::thread::LinearCombination<
+          ElementOutput,
+          // 128 / cutlass::sizeof_bits<ElementOutput>::value,
+          1, // for SIMT, set to 1 for scalar access 
+          ElementAccumulator,
+          ElementComputeEpilogue>;
+
+  // Using CUDA cores (SIMT) 
+  using ThreadblockShape = cutlass::gemm::GemmShape<64, 128, 8>;
+  using WarpShape        = cutlass::gemm::GemmShape<32, 64, 8>;
+  using InstructionShape = cutlass::gemm::GemmShape<1, 1, 1>;  // SIMT = scalar MMA
+
+  using Gemm = cutlass::gemm::device::Gemm<
+      ElementInputA,
+      LayoutInputA,
+      ElementInputB,
+      LayoutInputB,
+      ElementOutput,
+      LayoutOutput,
+      ElementAccumulator,
+      cutlass::arch::OpClassSimt,  // using SIMT
+      cutlass::arch::Sm80,
+      ThreadblockShape,
+      WarpShape,
+      InstructionShape,
+      EpilogueOp,
+      cutlass::gemm::threadblock::GemmIdentityThreadblockSwizzle<>,
+      2
+  >;
+  cutlass::gemm::GemmCoord problem_size(M, N, K);
+
+  cutlass::MatrixCoord input_size(M, K);
+  cutlass::MatrixCoord weight_size(K, N);
+  cutlass::MatrixCoord output_size(M, N);
+
+  cutlass::TensorRef<ElementInputA, LayoutInputA> input_ref(
+      reinterpret_cast<ElementInputA*>(input.data_ptr<torch::BFloat16>()),
+      LayoutInputA::packed(input_size));
+
+  cutlass::TensorRef<ElementInputB, LayoutInputB> weight_ref(
+      reinterpret_cast<ElementInputB*>(weight.data_ptr<torch::BFloat16>()),
+      LayoutInputB::packed(weight_size));
+
+  cutlass::TensorRef<ElementOutput, LayoutOutput> out_ref(
+      reinterpret_cast<ElementOutput*>(out.data_ptr<torch::BFloat16>()),
+      LayoutOutput::packed(output_size));
+
+  typename Gemm::Arguments arguments{
+      problem_size,
+      input_ref,
+      weight_ref,
+      out_ref,
+      out_ref,
+      {alpha, 0.0f},
+      1};
+
+  Gemm gemm_op;
+  cutlass::Status status = gemm_op.can_implement(arguments);
+  TORCH_CHECK(status == cutlass::Status::kSuccess,
+              "CUTLASS GEMM configuration not supported");  
+
+  auto stream = at::cuda::getCurrentCUDAStream();
+  status = gemm_op(arguments, stream.stream());
+  TORCH_CHECK(status == cutlass::Status::kSuccess,
+              "CUTLASS GEMM execution failed");
+
+  return out;
+}
+
+torch::Tensor matmul_cuda_core_host(
+    torch::Tensor input,
+    torch::Tensor weight,
+    float alpha
+) {
+  return matmul_cuda_core(input, weight, alpha);
+}
+
+
+
+// ================================================================
 // PyBind entry point
 // ================================================================
 
@@ -500,15 +617,6 @@ torch::Tensor func_int8_matmul(
   return int8_matmul_host(input, weight, static_cast<float>(alpha));
 }
 
-torch::Tensor func_int8_matmul_relu(
-    torch::Tensor input,    // INT8
-    torch::Tensor weight,   // INT8
-    double alpha // FP32
-) {
-  const at::cuda::OptionalCUDAGuard device_guard(input.device());
-  return int8_matmul_relu_host(input, weight, static_cast<float>(alpha));
-}
-
 torch::Tensor func_int8_matmul_dequant(
     torch::Tensor input,    // INT8
     torch::Tensor weight,   // INT8
@@ -518,16 +626,38 @@ torch::Tensor func_int8_matmul_dequant(
   return int8_matmul_dequant_host(input, weight, scale);
 }
 
+torch::Tensor func_matmul_tensor_core(
+    torch::Tensor input,  // BFloat16
+    torch::Tensor weight,  /// BFloat16
+    double alpha
+) {
+  const at::cuda::OptionalCUDAGuard device_guard(input.device());
+  return matmul_tensor_core_host(input, weight, static_cast<float>(alpha));
+}
+
+torch::Tensor func_matmul_cuda_core(
+    torch::Tensor input,  // BFloat16
+    torch::Tensor weight,  /// BFloat16
+    double alpha
+) {
+  const at::cuda::OptionalCUDAGuard device_guard(input.device());
+  return matmul_cuda_core_host(input, weight, static_cast<float>(alpha));
+}
+
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   m.def("func_int8_matmul",
         &func_int8_matmul,
         "INT8 GEMM with CUTLASS (bfloat16 output)");
 
-  m.def("func_int8_matmul_relu",
-        &func_int8_matmul_relu,
-        "INT8 GEMM with CUTLASS and relu (bfloat16 output)");
-
   m.def("func_int8_matmul_dequant",
         &func_int8_matmul_dequant,
         "INT8 GEMM with CUTLASS my custom (bfloat16 output)");
+
+  m.def("func_matmul_tensor_core",
+        &func_matmul_tensor_core,
+        "BFloat16 GEMM with CUTLASS Tensor Cores");
+
+  m.def("func_matmul_cuda_core",
+        &func_matmul_cuda_core, 
+        "BFloat16 GEMM with CUTLASS CUDA Cores");
 }

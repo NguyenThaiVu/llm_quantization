@@ -72,7 +72,8 @@ else:
 device = 'cuda'
 dtype = torch.bfloat16  
 
-list_input_dim = [1024, 1024 * 2, 1024 * 2, 1024 * 4, 1024 * 4, 1024 * 8, 1024 * 8]
+# list_input_dim = [1024, 1024 * 2, 1024 * 2, 1024 * 4, 1024 * 4, 1024 * 8, 1024 * 8]
+list_input_dim = [32, 32, 32, 32, 32, 32, 32]
 list_hidden_dim = [1024, 1024 * 2, 1024 * 4, 1024 * 4, 1024 * 8, 1024 * 8, 1024 * 8]
 list_output_dim = [1024, 1024 * 2, 1024 * 4, 1024 * 4, 1024 * 8, 1024 * 4, 1024 * 8]
 
@@ -157,19 +158,21 @@ for input_dim, hidden_dim, output_dim in zip(list_input_dim, list_hidden_dim, li
 # ========== Plotting Results ==========
 plt.figure(figsize=(6, 6))
 x_labels = [f"{in_dim} x {hid_dim} x {out_dim}" for in_dim, hid_dim, out_dim in zip(list_input_dim, list_hidden_dim, list_output_dim)]
-plt.rcParams.update({'font.size': 14})
+plt.rcParams.update({'font.size': 12})
 plt.plot(x_labels, list_times_gemm, marker='o', label='gemm_int8', linewidth=4)
 plt.plot(x_labels, list_times_bnb, marker='*', label='bitsandbytes', linewidth=2)
 plt.plot(x_labels, list_times_torchao, marker='+', label='torchao', linewidth=2)
 plt.xlabel('Matrix Dimensions (Input x Hidden x Output)')
 plt.ylabel('Average Time (ms)')
-plt.title('Int8 Matmul + Dequantization Performance Comparison')
-plt.xticks(rotation=45)
+plt.title('Int8 Matmul + Dequantization Speed Comparison')
+plt.tick_params(axis='x', labelsize=9)
+plt.xticks(rotation=60)
 plt.legend()
 plt.grid(True)
 plt.tight_layout()
+plt.show()
 
 if IS_TORCH_COMPILE:
-    plt.savefig(f'dequantization_performance_comparison_torch_compile.png')
+    plt.savefig(f'dequantization_comparison_torch_compile.png', bbox_inches="tight")
 else:
-    plt.savefig(f'dequantization_performance_comparison.png')
+    plt.savefig(f'dequantization_comparison.png')
