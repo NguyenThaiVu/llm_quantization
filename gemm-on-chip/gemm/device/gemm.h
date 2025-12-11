@@ -606,7 +606,8 @@ class Gemm_CUSTOM<ElementA_, LayoutA_, ElementB_, LayoutB_, ElementC_,
   static ComplexTransform const kTransformB = ComplexTransform::kNone;
   static bool const kSplitKSerial = SplitKSerial;
 
-  using UnderlyingOperator = Gemm< 
+  // using UnderlyingOperator = Gemm< 
+  using UnderlyingOperator = Gemm_CUSTOM<
     ElementB,
     typename layout::LayoutTranspose<LayoutB>::type,
     ElementA,

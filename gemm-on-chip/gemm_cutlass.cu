@@ -482,9 +482,10 @@ torch::Tensor matmul_tensor_core_host(
 
 
 // ================================================================
-// CUDA Core GEMM
+// My CUSTOM Tensor Core GEMM
 // ================================================================
-torch::Tensor matmul_cuda_core(
+template <typename TileShape, typename WarpShape, typename MmaShape, int kStages>
+torch::Tensor custom_matmul_tensor_core(
     torch::Tensor input,
     torch::Tensor weight,
     float alpha
@@ -527,17 +528,12 @@ torch::Tensor matmul_cuda_core(
 
   using EpilogueOp = cutlass::epilogue::thread::LinearCombination<
           ElementOutput,
-          // 128 / cutlass::sizeof_bits<ElementOutput>::value,
-          1, // for SIMT, set to 1 for scalar access 
+          128 / cutlass::sizeof_bits<ElementOutput>::value,
           ElementAccumulator,
           ElementComputeEpilogue>;
 
-  // Using CUDA cores (SIMT) 
-  using ThreadblockShape = cutlass::gemm::GemmShape<64, 128, 8>;
-  using WarpShape        = cutlass::gemm::GemmShape<32, 64, 8>;
-  using InstructionShape = cutlass::gemm::GemmShape<1, 1, 1>;  // SIMT = scalar MMA
-
-  using Gemm = cutlass::gemm::device::Gemm<
+  // using Gemm = cutlass::gemm::device::Gemm<
+  using Gemm = cutlass::gemm::device::Gemm_CUSTOM<
       ElementInputA,
       LayoutInputA,
       ElementInputB,
@@ -545,15 +541,15 @@ torch::Tensor matmul_cuda_core(
       ElementOutput,
       LayoutOutput,
       ElementAccumulator,
-      cutlass::arch::OpClassSimt,  // using SIMT
+      cutlass::arch::OpClassTensorOp,  // using Tensor Cores
       cutlass::arch::Sm80,
-      ThreadblockShape,
-      WarpShape,
-      InstructionShape,
+      TileShape,  // threadblock tile size
+      WarpShape, // warp tile size
+      MmaShape, // instruction tile size (Tensor Core)
       EpilogueOp,
       cutlass::gemm::threadblock::GemmIdentityThreadblockSwizzle<>,
-      2
-  >;
+      kStages>; 
+
   cutlass::gemm::GemmCoord problem_size(M, N, K);
 
   cutlass::MatrixCoord input_size(M, K);
@@ -582,24 +578,41 @@ torch::Tensor matmul_cuda_core(
       1};
 
   Gemm gemm_op;
+
+  size_t workspace_size = Gemm::get_workspace_size(arguments);
+  cutlass::device_memory::allocation<uint8_t> workspace(workspace_size);
+
   cutlass::Status status = gemm_op.can_implement(arguments);
   TORCH_CHECK(status == cutlass::Status::kSuccess,
-              "CUTLASS GEMM configuration not supported");  
+              "CUTLASS GEMM configuration not supported");
 
+  status = gemm_op.initialize(arguments, workspace.get());
+  TORCH_CHECK(status == cutlass::Status::kSuccess,
+              "CUTLASS GEMM initialization failed");
+
+  // Use the current PyTorch CUDA stream for better integratio
   auto stream = at::cuda::getCurrentCUDAStream();
-  status = gemm_op(arguments, stream.stream());
+  status = gemm_op(stream.stream());
   TORCH_CHECK(status == cutlass::Status::kSuccess,
               "CUTLASS GEMM execution failed");
 
   return out;
 }
 
-torch::Tensor matmul_cuda_core_host(
+torch::Tensor custom_matmul_tensor_core_host(
     torch::Tensor input,
     torch::Tensor weight,
     float alpha
 ) {
-  return matmul_cuda_core(input, weight, alpha);
+  auto M = input.size(0);
+  auto K = input.size(1);
+  auto N = weight.size(0);
+  using TileShape = cutlass::gemm::GemmShape<128, 128, 64>;
+  using WarpShape = cutlass::gemm::GemmShape<64, 64, 64>;
+  using MmaShape = cutlass::gemm::GemmShape<16, 8, 8>;
+  // constexpr int kStages = 3;
+  constexpr int kStages = 2; // Use 2 pipeline stages for custom kernel
+  return custom_matmul_tensor_core<TileShape, WarpShape, MmaShape, kStages>(input, weight, alpha);
 }
 
 
@@ -635,13 +648,13 @@ torch::Tensor func_matmul_tensor_core(
   return matmul_tensor_core_host(input, weight, static_cast<float>(alpha));
 }
 
-torch::Tensor func_matmul_cuda_core(
+torch::Tensor func_custom_matmul_tensor_core(
     torch::Tensor input,  // BFloat16
     torch::Tensor weight,  /// BFloat16
     double alpha
 ) {
   const at::cuda::OptionalCUDAGuard device_guard(input.device());
-  return matmul_cuda_core_host(input, weight, static_cast<float>(alpha));
+  return custom_matmul_tensor_core_host(input, weight, static_cast<float>(alpha));
 }
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
@@ -657,7 +670,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         &func_matmul_tensor_core,
         "BFloat16 GEMM with CUTLASS Tensor Cores");
 
-  m.def("func_matmul_cuda_core",
-        &func_matmul_cuda_core, 
+  m.def("func_custom_matmul_tensor_core",
+        &func_custom_matmul_tensor_core, 
         "BFloat16 GEMM with CUTLASS CUDA Cores");
 }

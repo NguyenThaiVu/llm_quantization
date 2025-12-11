@@ -200,7 +200,8 @@ struct DefaultGemm_CUSTOM<ElementA, LayoutA, kAlignmentA, ElementB, LayoutB, kAl
                    Operator, SharedMemoryClear, GatherA, GatherB, ScatterD,
                    PermuteDLayout, PermuteALayout, PermuteBLayout> {
   /// Define the threadblock-scoped matrix multiply-accumulate
-  using Mma = typename cutlass::gemm::threadblock::DefaultMma<
+  // using Mma = typename cutlass::gemm::threadblock::DefaultMma<
+  using Mma = typename cutlass::gemm::threadblock::DefaultMma_CUSTOM<
       ElementA, LayoutA, kAlignmentA, ElementB, LayoutB, kAlignmentB,
       ElementAccumulator, layout::RowMajor, arch::OpClassTensorOp, arch::Sm90,
       ThreadblockShape, WarpShape, InstructionShape, Stages,
@@ -216,7 +217,8 @@ struct DefaultGemm_CUSTOM<ElementA, LayoutA, kAlignmentA, ElementB, LayoutB, kAl
           EpilogueOutputOp::kCount, ScatterD, PermuteDLayout>::Epilogue;
 
   /// Define the kernel-level GEMM operator.
-  using GemmKernel = kernel::Gemm<Mma, Epilogue, ThreadblockSwizzle, SplitKSerial>;
+  // using GemmKernel = kernel::Gemm<Mma, Epilogue, ThreadblockSwizzle, SplitKSerial>;
+  using GemmKernel = kernel::Gemm_CUSTOM_KERNEL<Mma, Epilogue, ThreadblockSwizzle, SplitKSerial>;
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -278,6 +280,7 @@ struct DefaultGemm_CUSTOM<ElementA, LayoutA, kAlignmentA, ElementB, LayoutB, kAl
                    Operator, SharedMemoryClear, GatherA, GatherB, ScatterD, 
                    PermuteDLayout, PermuteALayout, PermuteBLayout> {
   /// Define the threadblock-scoped matrix multiply-accumulate
+  // using Mma = typename cutlass::gemm::threadblock::DefaultMma<
   using Mma = typename cutlass::gemm::threadblock::DefaultMma_CUSTOM<
       ElementA, LayoutA, kAlignmentA, ElementB, LayoutB, kAlignmentB,
       ElementAccumulator, layout::RowMajor, arch::OpClassTensorOp, arch::Sm89,
@@ -294,7 +297,8 @@ struct DefaultGemm_CUSTOM<ElementA, LayoutA, kAlignmentA, ElementB, LayoutB, kAl
           EpilogueOutputOp::kCount, ScatterD, PermuteDLayout>::Epilogue;
 
   /// Define the kernel-level GEMM operator.
-  using GemmKernel = kernel::Gemm<Mma, Epilogue, ThreadblockSwizzle, SplitKSerial>;
+  // using GemmKernel = kernel::Gemm<Mma, Epilogue, ThreadblockSwizzle, SplitKSerial>;
+  using GemmKernel = kernel::Gemm_CUSTOM_KERNEL<Mma, Epilogue, ThreadblockSwizzle, SplitKSerial>;
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -363,7 +367,8 @@ struct DefaultGemm_CUSTOM<ElementA, LayoutA, kAlignmentA, ElementB, LayoutB, kAl
              "Epilogue in the kernel level must be row major");
 
   /// Define the threadblock-scoped matrix multiply-accumulate
-  using Mma = typename cutlass::gemm::threadblock::DefaultMma<
+  // using Mma = typename cutlass::gemm::threadblock::DefaultMma<
+  using Mma = typename cutlass::gemm::threadblock::DefaultMma_CUSTOM<
       ElementA, LayoutA, kAlignmentA, ElementB, LayoutB, kAlignmentB,
       ElementAccumulator, LayoutC, arch::OpClassTensorOp, arch::Sm80,
       ThreadblockShape, WarpShape, InstructionShape, Stages,
@@ -388,7 +393,8 @@ struct DefaultGemm_CUSTOM<ElementA, LayoutA, kAlignmentA, ElementB, LayoutB, kAl
                                                   Affine2Epilogue>::type;
 
   /// Define the kernel-level GEMM operator.
-  using GemmKernel = kernel::Gemm<Mma, Epilogue, ThreadblockSwizzle, SplitKSerial>;
+  // using GemmKernel = kernel::Gemm<Mma, Epilogue, ThreadblockSwizzle, SplitKSerial>;
+  using GemmKernel = kernel::Gemm_CUSTOM_KERNEL<Mma, Epilogue, ThreadblockSwizzle, SplitKSerial>;
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -465,7 +471,8 @@ struct DefaultGemm_CUSTOM<
 > {
 
   /// Define the threadblock-scoped matrix multiply-accumulate
-  using Mma = typename cutlass::gemm::threadblock::DefaultMma<
+  // using Mma = typename cutlass::gemm::threadblock::DefaultMma<
+  using Mma = typename cutlass::gemm::threadblock::DefaultMma_CUSTOM<
     ElementA,
     LayoutA,
     kAlignmentA,
@@ -503,7 +510,8 @@ struct DefaultGemm_CUSTOM<
   >::Epilogue;
 
   /// Define the kernel-level GEMM operator.
-  using GemmKernel = kernel::Gemm<Mma, Epilogue, ThreadblockSwizzle, SplitKSerial>;
+  // using GemmKernel = kernel::Gemm<Mma, Epilogue, ThreadblockSwizzle, SplitKSerial>;
+  using GemmKernel = kernel::Gemm_CUSTOM_KERNEL<Mma, Epilogue, ThreadblockSwizzle, SplitKSerial>;
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -556,7 +564,8 @@ struct DefaultGemm_CUSTOM<
   using ElementAccumulator = int32_t;
 
   /// Define the threadblock-scoped matrix multiply-accumulate
-  using Mma = typename cutlass::gemm::threadblock::DefaultMma<
+  // using Mma = typename cutlass::gemm::threadblock::DefaultMma<
+  using Mma = typename cutlass::gemm::threadblock::DefaultMma_CUSTOM<
       ElementA, LayoutA, kAlignmentA, ElementB, LayoutB, kAlignmentB,
       ElementAccumulator, LayoutC, arch::OpClassTensorOp, arch::Sm80,
       ThreadblockShape, WarpShape, InstructionShape, Stages, Operator,
@@ -624,7 +633,8 @@ struct DefaultGemm_CUSTOM<ElementA, layout::ColumnMajorInterleaved<InterleavedK>
   using ElementAccumulator = int32_t;
 
   /// Define the threadblock-scoped matrix multiply-accumulate
-  using Mma = typename cutlass::gemm::threadblock::DefaultMma<
+  // using Mma = typename cutlass::gemm::threadblock::DefaultMma<
+  using Mma = typename cutlass::gemm::threadblock::DefaultMma_CUSTOM<
       ElementA, LayoutA, kAlignmentA, ElementB, LayoutB, kAlignmentB, ElementAccumulator, LayoutC,
       arch::OpClassTensorOp, arch::Sm75, ThreadblockShape, WarpShape,
       InstructionShape, 2, Operator, true>::ThreadblockMma;
@@ -638,7 +648,8 @@ struct DefaultGemm_CUSTOM<ElementA, layout::ColumnMajorInterleaved<InterleavedK>
           64 / sizeof_bits<ElementC>::value, InterleavedK>::Epilogue;
 
   /// Define the kernel-level GEMM operator.
-  using GemmKernel = kernel::Gemm<Mma, Epilogue, ThreadblockSwizzle, SplitKSerial>;
+  // using GemmKernel = kernel::Gemm<Mma, Epilogue, ThreadblockSwizzle, SplitKSerial>;
+  using GemmKernel = kernel::Gemm_CUSTOM_KERNEL<Mma, Epilogue, ThreadblockSwizzle, SplitKSerial>;
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -713,7 +724,8 @@ struct DefaultGemm_CUSTOM<
 > {
 
   /// Define the threadblock-scoped matrix multiply-accumulate
-  using Mma = typename cutlass::gemm::threadblock::DefaultMma<
+  // using Mma = typename cutlass::gemm::threadblock::DefaultMma<
+  using Mma = typename cutlass::gemm::threadblock::DefaultMma_CUSTOM<
     ElementA,
     LayoutA,
     kAlignmentA,
@@ -751,7 +763,8 @@ struct DefaultGemm_CUSTOM<
   >::Epilogue;
 
   /// Define the kernel-level GEMM operator.
-  using GemmKernel = kernel::Gemm<Mma, Epilogue, ThreadblockSwizzle, SplitKSerial>;
+  // using GemmKernel = kernel::Gemm<Mma, Epilogue, ThreadblockSwizzle, SplitKSerial>;
+  using GemmKernel = kernel::Gemm_CUSTOM_KERNEL<Mma, Epilogue, ThreadblockSwizzle, SplitKSerial>;
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -839,7 +852,8 @@ struct DefaultGemm_CUSTOM<
              "Epilogue in the kernel level must be row major");
 
   /// Define the threadblock-scoped matrix multiply-accumulate
-  using Mma = typename cutlass::gemm::threadblock::DefaultMma<
+  // using Mma = typename cutlass::gemm::threadblock::DefaultMma<
+  using Mma = typename cutlass::gemm::threadblock::DefaultMma_CUSTOM<
       ElementA,
       LayoutA,
       kAlignmentA,
@@ -888,7 +902,8 @@ struct DefaultGemm_CUSTOM<
                                                   Affine2Epilogue>::type;
 
   /// Define the kernel-level GEMM operator.
-  using GemmKernel = kernel::Gemm<Mma, Epilogue, ThreadblockSwizzle, SplitKSerial>;
+  // using GemmKernel = kernel::Gemm<Mma, Epilogue, ThreadblockSwizzle, SplitKSerial>;
+  using GemmKernel = kernel::Gemm_CUSTOM_KERNEL<Mma, Epilogue, ThreadblockSwizzle, SplitKSerial>;
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -974,7 +989,8 @@ struct DefaultGemm_CUSTOM<ElementA,
              "Epilogue in the kernel level must be row major");
 
   /// Define the threadblock-scoped matrix multiply-accumulate
-  using Mma = typename cutlass::gemm::threadblock::DefaultMma<
+  // using Mma = typename cutlass::gemm::threadblock::DefaultMma<
+  using Mma = typename cutlass::gemm::threadblock::DefaultMma_CUSTOM<
       ElementA, LayoutA, kAlignmentA, ElementB, LayoutB, kAlignmentB,
       ElementAccumulator, LayoutC, arch::OpClassSimt, arch::Sm80,
       ThreadblockShape, WarpShape, GemmShape<1, 1, 1>, Stages,
@@ -1007,7 +1023,8 @@ struct DefaultGemm_CUSTOM<ElementA,
                                                   Affine2Epilogue>::type;
 
   /// Define the kernel-level GEMM operator.
-  using GemmKernel = kernel::Gemm<Mma, Epilogue, ThreadblockSwizzle, SplitKSerial>; 
+  // using GemmKernel = kernel::Gemm<Mma, Epilogue, ThreadblockSwizzle, SplitKSerial>; 
+  using GemmKernel = kernel::Gemm_CUSTOM_KERNEL<Mma, Epilogue, ThreadblockSwizzle, SplitKSerial>;
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1058,7 +1075,8 @@ struct DefaultGemm_CUSTOM<int8_t, LayoutA, kAlignmentA, int8_t, LayoutB, kAlignm
 
   using OperatorClass =  arch::OpClassSimt;
   /// Define the threadblock-scoped matrix multiply-accumulate
-  using Mma = typename cutlass::gemm::threadblock::DefaultMma<
+  // using Mma = typename cutlass::gemm::threadblock::DefaultMma<
+  using Mma = typename cutlass::gemm::threadblock::DefaultMma_CUSTOM<
       ElementA,
       LayoutA,
       kAlignmentA,
@@ -1088,7 +1106,8 @@ struct DefaultGemm_CUSTOM<int8_t, LayoutA, kAlignmentA, int8_t, LayoutB, kAlignm
       >::Epilogue;
 
   /// Define the kernel-level GEMM operator.
-  using GemmKernel = kernel::Gemm<Mma, Epilogue, ThreadblockSwizzle, SplitKSerial>;
+  // using GemmKernel = kernel::Gemm<Mma, Epilogue, ThreadblockSwizzle, SplitKSerial>;
+  using GemmKernel = kernel::Gemm_CUSTOM_KERNEL<Mma, Epilogue, ThreadblockSwizzle, SplitKSerial>;
 };
 
 #if defined(CUTLASS_ARCH_WMMA_ENABLED)
@@ -1156,7 +1175,8 @@ struct DefaultGemm_CUSTOM<
   layout::NoPermute
 > {
   /// Define the threadblock-scoped matrix multiply-accumulate
-  using Mma = typename cutlass::gemm::threadblock::DefaultMma<
+  // using Mma = typename cutlass::gemm::threadblock::DefaultMma<
+  using Mma = typename cutlass::gemm::threadblock::DefaultMma_CUSTOM<
       ElementA, LayoutA, kAlignmentA,
       ElementB, LayoutB, kAlignmentB,
       ElementAccumulator, LayoutC, 
@@ -1180,7 +1200,8 @@ struct DefaultGemm_CUSTOM<
   >::Epilogue;
 
   /// Define the kernel-level GEMM operator.
-  using GemmKernel = kernel::Gemm<Mma, Epilogue, ThreadblockSwizzle, SplitKSerial>;
+  // using GemmKernel = kernel::Gemm<Mma, Epilogue, ThreadblockSwizzle, SplitKSerial>;
+  using GemmKernel = kernel::Gemm_CUSTOM_KERNEL<Mma, Epilogue, ThreadblockSwizzle, SplitKSerial>;
 };
 ////////////////////////////////////////////////////////////////////////////////
 
