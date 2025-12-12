@@ -45,6 +45,7 @@
 #include "cutlass/layout/permute.h"
 #include "cutlass/transform/threadblock/predicated_tile_iterator.h"
 #include "transform/threadblock/predicated_tile_iterator.h"  // Custom iterator
+#include "transform/threadblock/scale_op.h" // Custom scale op
 #include "cutlass/transform/threadblock/predicated_tile_iterator_2dthreadtile.h"
 
 #include "cutlass/gemm/gemm.h"
@@ -165,11 +166,10 @@ struct DefaultMma_CUSTOM<ElementA, LayoutA, kAlignmentA, ElementB, LayoutB,
 
   // Define iterators over tiles from the A operand
   using IteratorA =
-    //   cutlass::transform::threadblock::PredicatedTileIterator<
-      cutlass::transform::threadblock::PredicatedTileIterator_CUSTOM<
+        cutlass::transform::threadblock::PredicatedTileIterator_CUSTOM<
           cutlass::MatrixShape<MmaCore::Shape::kM, MmaCore::Shape::kK>,
           ElementA, LayoutA, 1, typename MmaCore::IteratorThreadMapA, kAlignmentA,
-          GatherA, PermuteALayout>;
+          GatherA, PermuteALayout, cutlass::transform::threadblock::ScaleOp>;
 
   // Define iterators over tiles from the B operand
   using IteratorB =

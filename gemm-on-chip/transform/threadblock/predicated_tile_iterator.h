@@ -46,6 +46,7 @@
 
 #include "cutlass/arch/memory.h"
 #include "cutlass/transform/threadblock/predicated_tile_access_iterator.h"
+#include "transform/threadblock/scale_op.h" // Custom scale op
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -140,7 +141,8 @@ template <
   typename ThreadMap,
   int AccessSize = ThreadMap::kElementsPerAccess,
   bool Gather = false,
-  typename PermuteLayout = layout::NoPermute
+  typename PermuteLayout = layout::NoPermute,
+  typename TransformOp = cutlass::transform::threadblock::IdentityOp
 >
 class PredicatedTileIterator_CUSTOM;
 
@@ -155,14 +157,17 @@ class PredicatedTileIterator_CUSTOM;
 ///            MaskedTileIteratorConcept
 ///
 template <typename Shape_, typename Element_, int AdvanceRank,
-          typename ThreadMap_, int AccessSize, bool Gather, typename PermuteLayout>
+          typename ThreadMap_, int AccessSize, bool Gather, typename PermuteLayout,
+          typename TransformOp_>
 class PredicatedTileIterator_CUSTOM<Shape_, Element_, layout::PitchLinear, AdvanceRank,
-                             ThreadMap_, AccessSize, Gather, PermuteLayout> {
+                             ThreadMap_, AccessSize, Gather, PermuteLayout, TransformOp_> {
  public:
   static_assert(
       AdvanceRank == 0 || AdvanceRank == 1,
       "Specialization for pitch-linear iterator may advance along the "
       "contiguous(rank=0) or strided(rank=1) dimension.");
+
+  using TransformOp = TransformOp_;
 
   using Shape = Shape_;
   using Element = Element_;
@@ -199,26 +204,27 @@ class PredicatedTileIterator_CUSTOM<Shape_, Element_, layout::PitchLinear, Advan
 
   /// Parameters object is precomputed state and is host-constructible
   class Params {
-   public:
+  public:
     using Base = typename TileAccessIterator::Params::Base;
-
     friend PredicatedTileIterator_CUSTOM;
 
-   private:
-    /// Parameters object
+  private:
     typename TileAccessIterator::Params params_;
 
-   public:
-    /// Construct the Params object given a pitch-linear tensor's layout
-    CUTLASS_HOST_DEVICE
-    Params(Layout const &layout) : params_(layout) {}
+  public:
+    typename TransformOp::Params transform_params;
 
-    /// Default constructor
+    CUTLASS_HOST_DEVICE
+    Params(Layout const &layout,
+          typename TransformOp::Params const &tp = typename TransformOp::Params())
+        : params_(layout), transform_params(tp) {}
+
     Params() = default;
 
     CUTLASS_HOST_DEVICE
-    Params(Base const &base)
-        : params_(base) {}
+    Params(Base const &base,
+          typename TransformOp::Params const &tp = typename TransformOp::Params())
+        : params_(base), transform_params(tp) {}
   };
 
  private:
@@ -232,6 +238,7 @@ class PredicatedTileIterator_CUSTOM<Shape_, Element_, layout::PitchLinear, Advan
 
   /// Data member to the tile access iterator
   TileAccessIterator address_iterator_;
+  TransformOp transform_op_;
 
  public:
 
@@ -253,9 +260,11 @@ class PredicatedTileIterator_CUSTOM<Shape_, Element_, layout::PitchLinear, Advan
       /// Initial offset of threadblock
       TensorCoord const &threadblock_offset,
       /// Gather indices
-      int const *indices = nullptr)
+      int const *indices=nullptr
+    )
       : address_iterator_(params.params_, pointer, extent, thread_id,
-                          threadblock_offset, indices) {}
+                          threadblock_offset, indices),
+      transform_op_(params.transform_params) {}
 
   /// Construct a PredicatedTileIterator_CUSTOM with zero threadblock offset
   CUTLASS_HOST_DEVICE
@@ -333,31 +342,30 @@ class PredicatedTileIterator_CUSTOM<Shape_, Element_, layout::PitchLinear, Advan
     for (int s = 0; s < ThreadMap::Iterations::kStrided; ++s) {
       CUTLASS_PRAGMA_UNROLL
       for (int c = 0; c < ThreadMap::Iterations::kContiguous; ++c) {
-
         CUTLASS_PRAGMA_UNROLL
         for (int v = 0; v < kAccessesPerVector; ++v) {
 
           int idx = v + kAccessesPerVector * (c + s * ThreadMap::Iterations::kContiguous); // calculate index in fragment
-          
+
           address_iterator_.set_iteration_index(idx);
           char const *byte_ptr = reinterpret_cast<char const *>(address_iterator_.get()) + byte_offset;
-
           AccessType const *access_ptr = reinterpret_cast<AccessType const *>(byte_ptr);
 
-          cutlass::arch::global_load<AccessType,
-                                     sizeof(AccessType)
-                                    >(
-              frag_ptr[idx], access_ptr, address_iterator_.valid());
+          bool pred = address_iterator_.valid();
 
-          // scale the value for testing purpose
-          AccessType &vec = frag_ptr[idx];
-          float scale = 2.0f;
+          cutlass::arch::global_load<AccessType, sizeof(AccessType)>(
+              frag_ptr[idx], access_ptr, pred);
 
-          CUTLASS_PRAGMA_UNROLL
-          for (int t = 0; t < AccessSize; ++t) {
-            vec[t] = Element(vec[t]) * Element(scale);
+          // Apply transform ONLY when pred true (optional: safe either way now)
+          if (pred) {
+            AccessType &vec = frag_ptr[idx];
+            CUTLASS_PRAGMA_UNROLL
+            for (int t = 0; t < AccessSize; ++t) {
+              Element x = vec[t];          // value copy
+              vec[t] = transform_op_(x);   // returns Element
+            }
           }
-            
+
           ++address_iterator_;
         }
       }
@@ -425,15 +433,18 @@ template <
   typename ThreadMap_,
   int AccessSize,
   bool Gather,
-  typename PermuteLayout
+  typename PermuteLayout,
+  typename TransformOp_
 >
 class PredicatedTileIterator_CUSTOM<Shape_, Element_, layout::ColumnMajor, AdvanceRank, 
-                             ThreadMap_, AccessSize, Gather, PermuteLayout> {
+                             ThreadMap_, AccessSize, Gather, PermuteLayout, TransformOp_> {
 public:
 
   static_assert(AdvanceRank == 0 || AdvanceRank == 1, 
     "Specialization for pitch-linear iterator may along advance along the "
     "contiguous(rank=0) or strided(rank=1) dimension.");
+  
+  using TransformOp = TransformOp_;
 
   using Shape = Shape_;
   using Element = Element_;
@@ -459,7 +470,8 @@ public:
     ThreadMap,
     AccessSize,
     Gather,
-    PermuteLayout
+    PermuteLayout,
+    TransformOp
   >;
 
   using AccessType = typename UnderlyingIterator::AccessType;
@@ -473,25 +485,21 @@ public:
   /// Parameters object is precomputed state and is host-constructible
   class Params {
   private:
-
     friend PredicatedTileIterator_CUSTOM;
-
-    /// Parameters object
     typename UnderlyingIterator::Params params_;
 
   public:
-
-    /// Default constructor
     Params() = default;
 
-    /// Construct the Params object given a pitch-linear tensor's layout
     CUTLASS_HOST_DEVICE
-    Params(Layout const &layout): params_(layout::PitchLinear(layout.stride(0)))
-    {}
+    Params(Layout const &layout,
+          typename TransformOp::Params const &tp = typename TransformOp::Params())
+      : params_(layout::PitchLinear(layout.stride(0)), tp) {}
 
     CUTLASS_HOST_DEVICE
-    Params(typename UnderlyingIterator::Params::Base const &base)
-        : params_(base) {}
+    Params(typename UnderlyingIterator::Params::Base const &base,
+          typename TransformOp::Params const &tp = typename TransformOp::Params())
+      : params_(base, tp) {}
   };
 
 
@@ -643,15 +651,18 @@ template <
   typename ThreadMap_,
   int AccessSize,
   bool Gather,
-  typename PermuteLayout
+  typename PermuteLayout,
+  typename TransformOp_
 >
 class PredicatedTileIterator_CUSTOM<Shape_, Element_, layout::RowMajor, AdvanceRank, 
-                             ThreadMap_, AccessSize, Gather, PermuteLayout> {
+                             ThreadMap_, AccessSize, Gather, PermuteLayout, TransformOp_> {
 public:
 
   static_assert(AdvanceRank == 0 || AdvanceRank == 1, 
     "Specialization for pitch-linear iterator may along advance along the "
     "contiguous(rank=0) or strided(rank=1) dimension.");
+
+  using TransformOp = TransformOp_;
 
   using Shape = Shape_;
   using Element = Element_;
@@ -677,7 +688,8 @@ public:
     ThreadMap,
     AccessSize,
     Gather,
-    PermuteLayout
+    PermuteLayout,
+    TransformOp
   >;
 
   using AccessType = typename UnderlyingIterator::AccessType;
@@ -691,25 +703,21 @@ public:
   /// Parameters object is precomputed state and is host-constructible
   class Params {
   private:
-
     friend PredicatedTileIterator_CUSTOM;
-
-    /// Parameters object
     typename UnderlyingIterator::Params params_;
 
   public:
-
-    /// Default constructor
     Params() = default;
 
-    /// Construct the Params object given a pitch-linear tensor's layout
     CUTLASS_HOST_DEVICE
-    Params(Layout const &layout): params_(layout::PitchLinear(layout.stride(0))) {}
+    Params(Layout const &layout,
+          typename TransformOp::Params const &tp = typename TransformOp::Params())
+      : params_(layout::PitchLinear(layout.stride(0)), tp) {}
 
     CUTLASS_HOST_DEVICE
-    Params(typename UnderlyingIterator::Params::Base const &base)
-        : params_(base) {}
-
+    Params(typename UnderlyingIterator::Params::Base const &base,
+          typename TransformOp::Params const &tp = typename TransformOp::Params())
+      : params_(base, tp) {}
   };
 
 private:

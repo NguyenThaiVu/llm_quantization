@@ -309,6 +309,8 @@ class Gemm_CUSTOM {
     int const *gather_A_indices;
     int const *gather_B_indices;
     int const *scatter_D_indices;
+    
+    float scale_A;
 
     //
     // Methods
@@ -333,7 +335,8 @@ class Gemm_CUSTOM {
       int split_k_slices = 1,
       int const *gather_A_indices_ = nullptr,
       int const *gather_B_indices_ = nullptr,
-      int const *scatter_D_indices_ = nullptr
+      int const *scatter_D_indices_ = nullptr,
+      float scale_A_ = 1.0f
     ):
       problem_size(problem_size_),
       ref_A(ref_A_),
@@ -344,7 +347,8 @@ class Gemm_CUSTOM {
       split_k_slices(split_k_slices),
       gather_A_indices(gather_A_indices_),
       gather_B_indices(gather_B_indices_),
-      scatter_D_indices(scatter_D_indices_) {
+      scatter_D_indices(scatter_D_indices_),
+      scale_A(scale_A_){
 
     }
   };
@@ -447,7 +451,8 @@ public:
       static_cast<int *>(workspace),
       args.gather_A_indices,
       args.gather_B_indices,
-      args.scatter_D_indices
+      args.scatter_D_indices,
+      args.scale_A
     };
 
     return Status::kSuccess;
@@ -468,6 +473,13 @@ public:
     params_.ref_D.reset(args.ref_D.data());
     params_.output_op = args.epilogue;
     params_.semaphore = static_cast<int *>(workspace);
+    params_.transform_A = cutlass::transform::threadblock::ScaleOp::Params(args.scale_A);
+    params_.params_A =
+      typename GemmKernel::Mma::IteratorA::Params(
+        params_.ref_A.layout(),
+        cutlass::transform::threadblock::ScaleOp::Params(args.scale_A)
+      );
+
 
     return Status::kSuccess;
   }

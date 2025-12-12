@@ -41,6 +41,7 @@
 #include "cutlass/matrix_coord.h"
 #include "cutlass/semaphore.h"
 #include "cutlass/arch/arch.h"
+#include "transform/threadblock/scale_op.h" // Custom scale op
 
 /////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -108,19 +109,27 @@ struct Gemm_CUSTOM_KERNEL {
       int *workspace = nullptr,
       int const *gather_A_indices = nullptr,
       int const *gather_B_indices = nullptr,
-      int const *scatter_D_indices = nullptr
+      int const *scatter_D_indices = nullptr,
+      float scale_A_ = 1.0f
     ):
       problem_size(problem_size),
       grid_tiled_shape(grid_tiled_shape),
       swizzle_log_tile(ThreadblockSwizzle().get_log_tile(grid_tiled_shape)),
-      params_A(ref_A.layout()),
+      
+      // params_A(ref_A.layout()),
+      // ref_A(ref_A),
+      params_A(ref_A.layout(), cutlass::transform::threadblock::ScaleOp::Params(scale_A_)),
       ref_A(ref_A),
+
       params_B(ref_B.layout()),
       ref_B(ref_B),
+      
       params_C(ref_C.layout()),
       ref_C(ref_C),
+      
       params_D(ref_D.layout()),
       ref_D(ref_D),
+      
       output_op(output_op),
       gather_A_indices(gather_A_indices),
       gather_B_indices(gather_B_indices),

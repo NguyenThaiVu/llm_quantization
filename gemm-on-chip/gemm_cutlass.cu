@@ -488,7 +488,8 @@ template <typename TileShape, typename WarpShape, typename MmaShape, int kStages
 torch::Tensor custom_matmul_tensor_core(
     torch::Tensor input,
     torch::Tensor weight,
-    float alpha
+    float alpha,
+    float scale_A = 1.0f
 ) {
   TORCH_CHECK(input.is_cuda(), "input must be a CUDA tensor");
   TORCH_CHECK(weight.is_cuda(), "weight must be a CUDA tensor");
@@ -568,14 +569,19 @@ torch::Tensor custom_matmul_tensor_core(
       reinterpret_cast<ElementOutput*>(out.data_ptr<torch::BFloat16>()),
       LayoutOutput::packed(output_size));
 
-  typename Gemm::Arguments arguments{
+    typename Gemm::Arguments arguments{
       problem_size,
       input_ref,
       weight_ref,
       out_ref,
       out_ref,
       {alpha, 0.0f},
-      1};
+      1,              // split_k_slices
+      nullptr,        // gather_A_indices
+      nullptr,        // gather_B_indices
+      nullptr,        // scatter_D_indices
+      scale_A         // <-- THIS is your scale
+  };
 
   Gemm gemm_op;
 
@@ -602,7 +608,8 @@ torch::Tensor custom_matmul_tensor_core(
 torch::Tensor custom_matmul_tensor_core_host(
     torch::Tensor input,
     torch::Tensor weight,
-    float alpha
+    float alpha,
+    float scale_A = 1.0f
 ) {
   auto M = input.size(0);
   auto K = input.size(1);
@@ -612,7 +619,7 @@ torch::Tensor custom_matmul_tensor_core_host(
   using MmaShape = cutlass::gemm::GemmShape<16, 8, 8>;
   // constexpr int kStages = 3;
   constexpr int kStages = 2; // Use 2 pipeline stages for custom kernel
-  return custom_matmul_tensor_core<TileShape, WarpShape, MmaShape, kStages>(input, weight, alpha);
+  return custom_matmul_tensor_core<TileShape, WarpShape, MmaShape, kStages>(input, weight, alpha, scale_A);
 }
 
 
@@ -651,10 +658,11 @@ torch::Tensor func_matmul_tensor_core(
 torch::Tensor func_custom_matmul_tensor_core(
     torch::Tensor input,  // BFloat16
     torch::Tensor weight,  /// BFloat16
-    double alpha
+    double alpha,
+    double scale_A = 1.0
 ) {
   const at::cuda::OptionalCUDAGuard device_guard(input.device());
-  return custom_matmul_tensor_core_host(input, weight, static_cast<float>(alpha));
+  return custom_matmul_tensor_core_host(input, weight, static_cast<float>(alpha), static_cast<float>(scale_A));
 }
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
